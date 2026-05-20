@@ -49,7 +49,7 @@ export default function BudgetDetails() {
     );
   }
 
-  const cat = CATEGORIES[budget.category];
+  const cat = CATEGORIES[budget.category] || CATEGORIES.others;
   const txns = expenses
     .filter((e) => e.category === budget.category && e.amount < 0 && new Date(e.date).toISOString().slice(0, 7) === budget.month)
     .sort((a, b) => +new Date(b.date) - +new Date(a.date));

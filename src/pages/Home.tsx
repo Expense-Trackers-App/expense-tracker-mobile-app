@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowDownRight, ArrowUpRight, BarChart3, PiggyBank, Plus, User } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, PiggyBank, Plus, User, RefreshCw } from "lucide-react";
 import { MobileLayout } from "@/components/MobileLayout";
 import { useApp, formatCurrency } from "@/context/AppContext";
 import { CATEGORIES } from "@/lib/categories";
@@ -10,10 +10,22 @@ export default function Home() {
   const { user, expenses, settings } = useApp();
 
   const now = new Date();
-  const thisMonth = expenses.filter((e) => new Date(e.date).getMonth() === now.getMonth());
+  const thisMonth = expenses.filter((e) => new Date(e.date).getMonth() === now.getMonth() && new Date(e.date).getFullYear() === now.getFullYear());
   const income = thisMonth.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0);
   const expense = Math.abs(thisMonth.filter((e) => e.amount < 0).reduce((s, e) => s + e.amount, 0));
   const balance = expenses.reduce((s, e) => s + e.amount, 0);
+
+  const thisMonthBalance = thisMonth.reduce((s, e) => s + e.amount, 0);
+  const lastMonthTotalBalance = balance - thisMonthBalance;
+  let percentageChange = 0;
+  if (lastMonthTotalBalance !== 0) {
+    percentageChange = ((balance - lastMonthTotalBalance) / Math.abs(lastMonthTotalBalance)) * 100;
+  } else if (balance > 0) {
+    percentageChange = 100;
+  } else if (balance < 0) {
+    percentageChange = -100;
+  }
+  const percentageText = `${percentageChange >= 0 ? "+" : ""}${percentageChange.toFixed(1)}% vs last month`;
 
   const recent = expenses.slice(0, 4);
 
@@ -26,9 +38,18 @@ export default function Home() {
             <p className="text-sm text-muted-foreground">Hi, {user?.name?.split(" ")[0] ?? "there"} 👋</p>
             <p className="text-xs text-muted-foreground/70">Good to see you again</p>
           </div>
-          <button onClick={() => navigate("/settings")} className="h-10 w-10 rounded-full bg-secondary grid place-items-center">
-            <User className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.location.reload()} className="h-10 w-10 rounded-full bg-secondary grid place-items-center">
+              <RefreshCw className="h-4 w-4 text-muted-foreground" />
+            </button>
+            <button onClick={() => navigate("/settings")} className="h-10 w-10 rounded-full bg-secondary grid place-items-center overflow-hidden">
+              {user?.avatar_url ? (
+                <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                <User className="h-5 w-5" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Balance card */}
@@ -40,7 +61,7 @@ export default function Home() {
           <p className="text-xs opacity-80">Total Balance</p>
           <div className="flex items-end justify-between mt-1">
             <p className="text-3xl font-bold">{formatCurrency(balance, settings.currency)}</p>
-            <span className="text-xs bg-white/15 rounded-full px-2 py-1">+12.5% vs last month</span>
+            <span className="text-xs bg-white/15 rounded-full px-2 py-1">{percentageText}</span>
           </div>
         </motion.div>
 
@@ -77,7 +98,7 @@ export default function Home() {
               <p className="text-sm text-muted-foreground text-center py-8">No transactions yet</p>
             ) : (
               recent.map((tx) => {
-                const cat = CATEGORIES[tx.category];
+                const cat = CATEGORIES[tx.category] || CATEGORIES.others;
                 const Icon = cat.icon;
                 return (
                   <div key={tx.id} className="flex items-center gap-3 bg-card rounded-2xl px-4 py-3">

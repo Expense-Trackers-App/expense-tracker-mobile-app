@@ -10,12 +10,15 @@ import type { Category } from "@/lib/types";
 
 export default function Analytics() {
   const { expenses, settings } = useApp();
-  const [range, setRange] = useState<"week" | "month" | "year">("month");
+  const [range, setRange] = useState<"daily" | "week" | "month" | "year">("month");
 
   const filtered = useMemo(() => {
     const now = new Date();
     return expenses.filter((e) => {
       const d = new Date(e.date);
+      if (range === "daily") {
+        return d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      }
       if (range === "week") {
         const diff = (now.getTime() - d.getTime()) / 86400000;
         return diff <= 7;
@@ -28,13 +31,45 @@ export default function Analytics() {
   const expensesOnly = filtered.filter((e) => e.amount < 0);
   const total = expensesOnly.reduce((s, e) => s + Math.abs(e.amount), 0);
 
+  const lastPeriodFiltered = useMemo(() => {
+    const now = new Date();
+    return expenses.filter((e) => {
+      const d = new Date(e.date);
+      if (range === "daily") {
+        const yesterday = new Date(now);
+        yesterday.setDate(now.getDate() - 1);
+        return d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear();
+      }
+      if (range === "week") {
+        const diff = (now.getTime() - d.getTime()) / 86400000;
+        return diff > 7 && diff <= 14;
+      }
+      if (range === "month") {
+        const lastMonth = new Date(now);
+        lastMonth.setMonth(now.getMonth() - 1);
+        return d.getMonth() === lastMonth.getMonth() && d.getFullYear() === lastMonth.getFullYear();
+      }
+      return d.getFullYear() === now.getFullYear() - 1;
+    });
+  }, [expenses, range]);
+
+  const lastPeriodTotal = lastPeriodFiltered.filter((e) => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);
+  let percentageChange = 0;
+  if (lastPeriodTotal !== 0) {
+    percentageChange = ((total - lastPeriodTotal) / lastPeriodTotal) * 100;
+  } else if (total > 0) {
+    percentageChange = 100;
+  }
+  const percentageText = `${percentageChange >= 0 ? "+" : ""}${percentageChange.toFixed(1)}% from last period`;
+  const percentageColor = percentageChange > 0 ? "text-destructive" : "text-success";
+
   const byCategory = useMemo(() => {
     const map = new Map<Category, number>();
     for (const e of expensesOnly) {
       map.set(e.category, (map.get(e.category) ?? 0) + Math.abs(e.amount));
     }
     return Array.from(map.entries())
-      .map(([cat, value]) => ({ cat, value, meta: CATEGORIES[cat] }))
+      .map(([cat, value]) => ({ cat, value, meta: CATEGORIES[cat] || CATEGORIES.others }))
       .sort((a, b) => b.value - a.value);
   }, [expensesOnly]);
 
@@ -49,6 +84,7 @@ export default function Analytics() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="daily">Today</SelectItem>
             <SelectItem value="week">This Week</SelectItem>
             <SelectItem value="month">This Month</SelectItem>
             <SelectItem value="year">This Year</SelectItem>
@@ -58,7 +94,7 @@ export default function Analytics() {
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-3xl p-5">
           <p className="text-xs text-muted-foreground">Total Expenses</p>
           <p className="text-2xl font-bold mt-1">{formatCurrency(total, settings.currency)}</p>
-          <p className="text-xs text-success mt-1">+12.5% from last period</p>
+          <p className={`text-xs mt-1 ${percentageColor}`}>{percentageText}</p>
 
           <div className="h-56 mt-4 relative">
             {data.length === 0 ? (

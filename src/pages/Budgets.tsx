@@ -76,7 +76,7 @@ export default function Budgets() {
           <p className="text-center text-sm text-muted-foreground py-12">No budgets for this month yet</p>
         ) : (
           monthBudgets.map((b, idx) => {
-            const cat = CATEGORIES[b.category];
+            const cat = CATEGORIES[b.category] || CATEGORIES.others;
             const spent = spentByCat.get(b.category) ?? 0;
             const pct = Math.min(Math.round((spent / b.limit) * 100), 100);
             const overLimit = spent > b.limit;

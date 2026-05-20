@@ -32,7 +32,7 @@ export default function Expenses() {
     if (filtered.length === 0) return toast.error("No transactions to export");
     const headers = ["Date,Title,Category,Amount"];
     const rows = filtered.map(
-      (e) => `${new Date(e.date).toISOString().split("T")[0]},"${e.title}",${CATEGORIES[e.category].label},${e.amount}`
+      (e) => `${new Date(e.date).toISOString().split("T")[0]},"${e.title}",${(CATEGORIES[e.category] || CATEGORIES.others).label},${e.amount}`
     );
     const csv = headers.concat(rows).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -46,6 +46,30 @@ export default function Expenses() {
   };
 
   const total = filtered.reduce((s, e) => s + e.amount, 0);
+
+  const thisMonthTotal = useMemo(() => {
+    const now = new Date();
+    return filtered.filter(e => {
+        const d = new Date(e.date);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).reduce((s, e) => s + e.amount, 0);
+  }, [filtered]);
+
+  const lastMonthTotal = useMemo(() => {
+    const now = new Date();
+    return filtered.filter(e => {
+        const d = new Date(e.date);
+        return d.getMonth() === (now.getMonth() - 1 + 12) % 12 && d.getFullYear() === (now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear());
+    }).reduce((s, e) => s + e.amount, 0);
+  }, [filtered]);
+
+  let percentageChange = 0;
+  if (lastMonthTotal !== 0) {
+    percentageChange = ((thisMonthTotal - lastMonthTotal) / Math.abs(lastMonthTotal)) * 100;
+  } else if (thisMonthTotal !== 0) {
+    percentageChange = 100;
+  }
+  const percentageText = `${percentageChange >= 0 ? "+" : ""}${percentageChange.toFixed(1)}% vs last month`;
 
   const groups = useMemo(() => {
     const map = new Map<string, typeof filtered>();
@@ -98,7 +122,7 @@ export default function Expenses() {
           <p className={`text-2xl font-bold mt-1 ${total < 0 ? "text-foreground" : "text-success"}`}>
             {formatCurrency(total, settings.currency)}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">+12.5% vs last month</p>
+          <p className="text-xs text-muted-foreground mt-1">{percentageText}</p>
         </div>
       </div>
 
@@ -116,7 +140,7 @@ export default function Expenses() {
               <p className="text-xs font-medium text-muted-foreground mb-2">{formatGroupDate(date)}</p>
               <div className="space-y-2">
                 {items.map((tx) => {
-                  const cat = CATEGORIES[tx.category];
+                  const cat = CATEGORIES[tx.category] || CATEGORIES.others;
                   const Icon = cat.icon;
                   return (
                     <button

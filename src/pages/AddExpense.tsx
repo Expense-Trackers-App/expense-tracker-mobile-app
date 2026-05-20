@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { AppHeader } from "@/components/AppHeader";
 import { PhoneShell } from "@/components/PhoneShell";
@@ -12,6 +12,8 @@ import { CATEGORY_LIST } from "@/lib/categories";
 import { useApp } from "@/context/AppContext";
 import type { Category, PaymentMethod } from "@/lib/types";
 import { toast } from "sonner";
+import { Camera, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 const PAYMENT_METHODS: { id: PaymentMethod; label: string }[] = [
   { id: "credit-card", label: "Credit Card" },
@@ -23,16 +25,21 @@ const PAYMENT_METHODS: { id: PaymentMethod; label: string }[] = [
 export default function AddExpense() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { addExpense, updateExpense, deleteExpense, expenses } = useApp();
   const editing = useMemo(() => expenses.find((e) => e.id === id), [expenses, id]);
 
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState<Category>("food");
+  const initialIsIncome = searchParams.get("type") === "income";
+  const [isIncome, setIsIncome] = useState(initialIsIncome);
+  const [category, setCategory] = useState<Category>(initialIsIncome ? "salary" : "food");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("credit-card");
   const [notes, setNotes] = useState("");
-  const [isIncome, setIsIncome] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState("");
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) {
@@ -42,9 +49,35 @@ export default function AddExpense() {
       setDate(editing.date.slice(0, 10));
       setPaymentMethod(editing.paymentMethod);
       setNotes(editing.notes ?? "");
+      setReceiptUrl(editing.receiptUrl ?? "");
       setIsIncome(editing.amount > 0);
     }
   }, [editing]);
+
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+
+    setUploadingReceipt(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Date.now()}-${Math.random()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("receipts")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from("receipts").getPublicUrl(fileName);
+      setReceiptUrl(data.publicUrl);
+      toast.success("Receipt uploaded.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to upload receipt. Make sure 'receipts' bucket exists.");
+    } finally {
+      setUploadingReceipt(false);
+    }
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,10 +87,10 @@ export default function AddExpense() {
 
     const value = isIncome ? num : -num;
     if (editing) {
-      updateExpense(editing.id, { title, amount: value, category, date: new Date(date).toISOString(), paymentMethod, notes });
+      updateExpense(editing.id, { title, amount: value, category, date: new Date(date).toISOString(), paymentMethod, notes, receiptUrl });
       toast.success("Expense updated");
     } else {
-      addExpense({ title, amount: value, category, date: new Date(date).toISOString(), paymentMethod, notes });
+      addExpense({ title, amount: value, category, date: new Date(date).toISOString(), paymentMethod, notes, receiptUrl });
       toast.success("Expense added");
     }
     navigate(-1);
@@ -65,14 +98,14 @@ export default function AddExpense() {
 
   return (
     <PhoneShell>
-      <div className="flex flex-col min-h-screen">
+      <div className="flex flex-col h-full overflow-hidden">
         <StatusBar />
-        <AppHeader title={editing ? "Edit Expense" : "Add Expense"} />
+        <AppHeader title={editing ? (isIncome ? "Edit Income" : "Edit Expense") : (isIncome ? "Add Income" : "Add Expense")} />
         <motion.form
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           onSubmit={submit}
-          className="flex-1 flex flex-col px-5 pb-6 space-y-5"
+          className="flex-1 overflow-y-auto px-5 pb-6 space-y-5 scrollbar-hide flex flex-col"
         >
           <Field label="Amount">
             <div className="flex items-center gap-2 bg-secondary/60 rounded-2xl px-5 h-16">
@@ -87,7 +120,11 @@ export default function AddExpense() {
               />
               <button
                 type="button"
-                onClick={() => setIsIncome(!isIncome)}
+                onClick={() => {
+                  const nextIncome = !isIncome;
+                  setIsIncome(nextIncome);
+                  setCategory(nextIncome ? "salary" : "food");
+                }}
                 className={`text-xs px-3 py-1 rounded-full ${isIncome ? "bg-success/20 text-success" : "bg-muted text-muted-foreground"}`}
               >
                 {isIncome ? "Income" : "Expense"}
@@ -159,10 +196,38 @@ export default function AddExpense() {
             />
           </Field>
 
+          <Field label="Receipt (Optional)">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="relative h-32 w-full rounded-2xl bg-secondary/60 flex items-center justify-center cursor-pointer overflow-hidden group border border-border/50"
+            >
+              {receiptUrl ? (
+                <img src={receiptUrl} alt="Receipt" className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex flex-col items-center text-muted-foreground gap-2">
+                  <Camera className="h-6 w-6" />
+                  <span className="text-sm">Upload Receipt</span>
+                </div>
+              )}
+              {uploadingReceipt && (
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                  <Loader2 className="animate-spin text-white h-6 w-6" />
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleReceiptUpload}
+              />
+            </div>
+          </Field>
+
           <div className="flex-1" />
           <div className="space-y-2">
             <Button type="submit" size="lg" className="w-full h-14 gradient-primary border-0 hover:opacity-90 rounded-2xl">
-              {editing ? "Save Changes" : "Save Expense"}
+              {editing ? "Save Changes" : (isIncome ? "Save Income" : "Save Expense")}
             </Button>
             {editing && (
               <Button
